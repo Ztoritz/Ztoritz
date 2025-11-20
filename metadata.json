@@ -1,0 +1,5 @@
+{
+  "name": "Hydmos Modern Clone",
+  "description": "A modern, interactive, and responsive clone of the Hydmos website, featuring an AI-powered technical assistant for hydraulic and gas systems, built with React, Tailwind CSS, and Gemini API.",
+  "requestFramePermissions": []
+}
