@@ -1,10 +1,2 @@
-version: '3.8'
-
-services:
-  web:
-    build: .
-    ports:
-      - "3000:80"
-    environment:
-      - API_KEY=${API_KEY}
-    restart: always
+# Denna fil har ersatts av nixpacks.toml konfiguration.
+# This file has been replaced by nixpacks.toml configuration.
