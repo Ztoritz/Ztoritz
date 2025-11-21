@@ -1,0 +1,5 @@
+{
+    "githubPullRequests.codingAgent.autoCommitAndPush": true,
+    "git.allowForcePush": true,
+    "github-enterprise.uri": ""
+}
