@@ -10,7 +10,7 @@ document.body.appendChild(renderer.domElement);
 renderer.domElement.style.position = 'fixed';
 renderer.domElement.style.top = '0';
 renderer.domElement.style.left = '0';
-renderer.domElement.style.zIndex = '-1';
+renderer.domElement.style.zIndex = '10';
 
 // Lighting
 const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
@@ -24,11 +24,26 @@ const pointLight2 = new THREE.PointLight(0x6366f1, 0.8); // Violet tint
 pointLight2.position.set(-5, -5, 5);
 scene.add(pointLight2);
 
+// Physics Setup
+const world = new CANNON.World();
+world.gravity.set(0, 0, 0); // Zero gravity for floating effect
+world.broadphase = new CANNON.NaiveBroadphase();
+world.solver.iterations = 10;
+
+// Materials
+const diceMaterial = new CANNON.Material();
+const contactMaterial = new CANNON.ContactMaterial(diceMaterial, diceMaterial, {
+    friction: 0.1,
+    restitution: 0.5 // Bounciness
+});
+world.addContactMaterial(contactMaterial);
+
 // Dice creation
 const diceGroup = new THREE.Group();
 scene.add(diceGroup);
 
 const diceGeometry = new THREE.BoxGeometry(1, 1, 1);
+const diceShape = new CANNON.Box(new CANNON.Vec3(0.5, 0.5, 0.5)); // Half extents
 
 // Function to create dice face texture
 function createDiceTexture(number) {
@@ -37,7 +52,7 @@ function createDiceTexture(number) {
     canvas.height = 128;
     const ctx = canvas.getContext('2d');
 
-    // Background (Steel-ish color is handled by material, but texture needs base)
+    // Background
     ctx.fillStyle = '#e2e8f0';
     ctx.fillRect(0, 0, 128, 128);
 
@@ -62,58 +77,135 @@ function createDiceTexture(number) {
         });
     }
 
+    // Add border for definition
+    ctx.strokeStyle = '#cbd5e1';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(0, 0, 128, 128);
+
     const texture = new THREE.CanvasTexture(canvas);
     return texture;
 }
 
 const materials = [
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(1), metalness: 0.7, roughness: 0.2 }), // Right
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(6), metalness: 0.7, roughness: 0.2 }), // Left
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(2), metalness: 0.7, roughness: 0.2 }), // Top
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(5), metalness: 0.7, roughness: 0.2 }), // Bottom
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(3), metalness: 0.7, roughness: 0.2 }), // Front
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(4), metalness: 0.7, roughness: 0.2 })  // Back
-];
-
-// Note: BoxGeometry UV mapping aligns specific faces. 
-// Standard mapping: 0:Right, 1:Left, 2:Top, 3:Bottom, 4:Front, 5:Back
-// We want face '6' to be on a specific side for easy solving. 
-// Let's say we want '6' to be Front (index 4) for the final look.
-// Re-ordering materials to match standard dice layout where opposites sum to 7.
-// 0:Right(1), 1:Left(6), 2:Top(2), 3:Bottom(5), 4:Front(3), 5:Back(4) -> Standard
-// Let's put 6 on Front (index 4) for easy alignment.
-const solvedMaterials = [
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(1), metalness: 0.8, roughness: 0.1 }),
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(6), metalness: 0.8, roughness: 0.1 }), // Left
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(2), metalness: 0.8, roughness: 0.1 }),
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(5), metalness: 0.8, roughness: 0.1 }),
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(6), metalness: 0.8, roughness: 0.1 }), // Front - TARGET
-    new THREE.MeshStandardMaterial({ map: createDiceTexture(1), metalness: 0.8, roughness: 0.1 })  // Back
+    new THREE.MeshStandardMaterial({ map: createDiceTexture(1), metalness: 0.5, roughness: 0.2 }), // Right
+    new THREE.MeshStandardMaterial({ map: createDiceTexture(6), metalness: 0.5, roughness: 0.2 }), // Left
+    new THREE.MeshStandardMaterial({ map: createDiceTexture(2), metalness: 0.5, roughness: 0.2 }), // Top
+    new THREE.MeshStandardMaterial({ map: createDiceTexture(5), metalness: 0.5, roughness: 0.2 }), // Bottom
+    new THREE.MeshStandardMaterial({ map: createDiceTexture(3), metalness: 0.5, roughness: 0.2 }), // Front
+    new THREE.MeshStandardMaterial({ map: createDiceTexture(4), metalness: 0.5, roughness: 0.2 })  // Back
 ];
 
 const diceMeshes = [];
+const diceBodies = [];
+
 for (let i = 0; i < 6; i++) {
-    const dice = new THREE.Mesh(diceGeometry, solvedMaterials);
-    // Random initial position spread
-    dice.position.set((Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 5 - 5);
-    dice.rotation.set(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+    // Mesh
+    const dice = new THREE.Mesh(diceGeometry, materials);
     diceGroup.add(dice);
+
+    // Body
+    const body = new CANNON.Body({
+        mass: 1,
+        shape: diceShape,
+        material: diceMaterial,
+        linearDamping: 0.5,
+        angularDamping: 0.5
+    });
+
+    // Initial random position (Intro state)
+    const x = (Math.random() - 0.5) * 10;
+    const y = (Math.random() - 0.5) * 8;
+    const z = (Math.random() - 0.5) * 6 - 2;
+
+    body.position.set(x, y, z);
+    body.quaternion.setFromEuler(Math.random() * Math.PI, Math.random() * Math.PI, Math.random() * Math.PI);
+
+    // Initial random velocity
+    body.velocity.set((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2);
+    body.angularVelocity.set((Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2, (Math.random() - 0.5) * 2);
+
+    world.addBody(body);
+    diceBodies.push(body);
+
     diceMeshes.push({
         mesh: dice,
-        velocity: new THREE.Vector3((Math.random() - 0.5) * 0.1, (Math.random() - 0.5) * 0.1, 0),
-        rotVelocity: new THREE.Vector3((Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.2, (Math.random() - 0.5) * 0.2),
+        body: body,
+        localState: 'DEFAULT', // DEFAULT, SCRAMBLING, SOLVING, SOLVED
         targetPos: new THREE.Vector3((i - 2.5) * 1.5, 3, -2), // Line up above text
-        targetRot: new THREE.Euler(0, 0, 0) // Front face (6) forward
+        targetRot: new THREE.Euler(),
+        scrambleStartTime: 0,
+        resultNumber: 1
     });
 }
 
-camera.position.z = 5;
+camera.position.z = 8;
 
 // Animation State
-let state = 'TUMBLING'; // TUMBLING, SOLVING, SOLVED
+let globalState = 'INTRO'; // INTRO, ASSEMBLING, IDLE
 let startTime = Date.now();
-const tumbleDuration = 3000;
-const solveDuration = 2000;
+
+// Interaction
+const raycaster = new THREE.Raycaster();
+const mouse = new THREE.Vector2();
+
+window.addEventListener('click', (event) => {
+    // Only allow interaction if we are in IDLE state
+    if (globalState !== 'IDLE') return;
+
+    mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+    mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+    raycaster.setFromCamera(mouse, camera);
+    const intersects = raycaster.intersectObjects(diceGroup.children);
+
+    if (intersects.length > 0) {
+        const clickedDiceMesh = intersects[0].object;
+        const diceData = diceMeshes.find(d => d.mesh === clickedDiceMesh);
+
+        // Only scramble if it's not already doing something
+        if (diceData && diceData.localState === 'DEFAULT') {
+            startScramble(diceData);
+        }
+    }
+});
+
+function startScramble(diceData) {
+    diceData.localState = 'SCRAMBLING';
+    diceData.scrambleStartTime = Date.now();
+
+    // Apply large random impulse and torque to the clicked die
+    const impulse = new CANNON.Vec3(
+        (Math.random() - 0.5) * 15,
+        (Math.random() - 0.5) * 15,
+        (Math.random() - 0.5) * 15
+    );
+    const point = new CANNON.Vec3(0, 0, 0);
+    diceData.body.applyImpulse(impulse, point);
+
+    diceData.body.angularVelocity.set(
+        (Math.random() - 0.5) * 20,
+        (Math.random() - 0.5) * 20,
+        (Math.random() - 0.5) * 20
+    );
+
+    diceData.body.wakeUp();
+}
+
+function getTargetRotation(number) {
+    // 0:Right(1), 1:Left(6), 2:Top(2), 3:Bottom(5), 4:Front(3), 5:Back(4)
+    const rot = new THREE.Euler();
+    switch (number) {
+        case 1: rot.set(0, -Math.PI / 2, 0); break;
+        case 6: rot.set(0, Math.PI / 2, 0); break;
+        case 2: rot.set(Math.PI / 2, 0, 0); break;
+        case 5: rot.set(-Math.PI / 2, 0, 0); break;
+        case 3: rot.set(0, 0, 0); break;
+        case 4: rot.set(0, Math.PI, 0); break;
+    }
+    return rot;
+}
+
+const timeStep = 1 / 60;
 
 function animate() {
     requestAnimationFrame(animate);
@@ -121,48 +213,145 @@ function animate() {
     const now = Date.now();
     const elapsed = now - startTime;
 
-    if (elapsed > tumbleDuration && state === 'TUMBLING') {
-        state = 'SOLVING';
+    // Global State Transitions
+    if (globalState === 'INTRO' && elapsed > 2500) {
+        globalState = 'ASSEMBLING';
+    } else if (globalState === 'ASSEMBLING' && elapsed > 5000) {
+        globalState = 'IDLE';
     }
 
-    diceMeshes.forEach((d, i) => {
-        if (state === 'TUMBLING') {
-            d.mesh.rotation.x += d.rotVelocity.x;
-            d.mesh.rotation.y += d.rotVelocity.y;
-            d.mesh.rotation.z += d.rotVelocity.z;
+    // Step physics world
+    world.step(timeStep);
 
-            d.mesh.position.add(d.velocity);
+    diceMeshes.forEach((d) => {
+        // Sync mesh with physics body
+        d.mesh.position.copy(d.body.position);
+        d.mesh.quaternion.copy(d.body.quaternion);
 
-            // Bounce off "walls" roughly
-            if (Math.abs(d.mesh.position.x) > 6) d.velocity.x *= -1;
-            if (Math.abs(d.mesh.position.y) > 4) d.velocity.y *= -1;
+        if (d.localState === 'DEFAULT') {
+            if (globalState === 'INTRO') {
+                // Keep them somewhat on screen
+                if (d.body.position.length() > 10) {
+                    const force = d.body.position.clone().negate().scale(0.2);
+                    d.body.applyForce(force, d.body.position);
+                }
+            } else if (globalState === 'ASSEMBLING' || globalState === 'IDLE') {
+                // Spring force to target position
+                const k = 3; // Spring stiffness
+                const damping = 0.8; // Damping
 
-        } else if (state === 'SOLVING') {
-            // Lerp to target
-            const progress = Math.min((elapsed - tumbleDuration) / solveDuration, 1);
-            // Ease out cubic
-            const ease = 1 - Math.pow(1 - progress, 3);
+                const currentPos = new THREE.Vector3().copy(d.body.position);
+                const target = d.targetPos;
+
+                // F = -k * (x - target) - c * v
+                const dist = target.clone().sub(currentPos);
+                const force = dist.multiplyScalar(k);
+
+                const velocity = new THREE.Vector3().copy(d.body.velocity);
+                force.sub(velocity.multiplyScalar(damping));
+
+                d.body.applyForce(new CANNON.Vec3(force.x, force.y, force.z), d.body.position);
+
+                // Add small random noise in IDLE to make them "move slightly"
+                if (globalState === 'IDLE') {
+                    d.body.applyForce(new CANNON.Vec3(
+                        (Math.random() - 0.5) * 0.5,
+                        (Math.random() - 0.5) * 0.5,
+                        (Math.random() - 0.5) * 0.5
+                    ), d.body.position);
+                }
+            }
+        } else if (d.localState === 'SCRAMBLING') {
+            // Scramble for 2 seconds
+            if (now - d.scrambleStartTime > 2000) {
+                d.localState = 'SOLVING';
+                d.resultNumber = Math.floor(Math.random() * 6) + 1;
+                d.targetRot = getTargetRotation(d.resultNumber);
+
+                // Stop in place: set target position to current position
+                d.targetPos.copy(d.body.position);
+
+                // Disable physics for solving
+                d.body.sleep();
+                d.body.type = CANNON.Body.KINEMATIC; // Make it kinematic so it doesn't move by forces
+            }
+        } else if (d.localState === 'SOLVING') {
+            // Deterministic animation to target
 
             d.mesh.position.lerp(d.targetPos, 0.05);
 
-            // Smooth rotation is tricky with Euler, using Quaternions is better but let's try simple lerp for now
-            // Actually, let's just set rotation to target * ease + current * (1-ease) logic
-            // Or better: use Quaternion slerp
-
-            const currentQ = d.mesh.quaternion.clone();
             const targetQ = new THREE.Quaternion().setFromEuler(d.targetRot);
             d.mesh.quaternion.slerp(targetQ, 0.05);
 
-            if (progress >= 1) {
-                state = 'SOLVED';
+            // Sync body to mesh (since we made it kinematic/slept, we manually move it)
+            d.body.position.copy(d.mesh.position);
+            d.body.quaternion.copy(d.mesh.quaternion);
+
+            if (d.mesh.quaternion.angleTo(targetQ) < 0.01) {
+                d.localState = 'SOLVED';
+                setTimeout(() => {
+                    window.location.href = `page${d.resultNumber}.html`;
+                }, 500);
             }
-        } else {
-            // SOLVED - maybe gentle float
-            d.mesh.position.y = d.targetPos.y + Math.sin(now * 0.001 + i) * 0.1;
         }
     });
 
     renderer.render(scene, camera);
+}
+
+// Screen Boundaries
+const walls = [];
+const wallMaterial = new CANNON.Material();
+const wallContactMaterial = new CANNON.ContactMaterial(diceMaterial, wallMaterial, {
+    friction: 0.0,
+    restitution: 0.8 // Bouncier walls
+});
+world.addContactMaterial(wallContactMaterial);
+
+function createWall(position, quaternion) {
+    const wallBody = new CANNON.Body({
+        mass: 0, // Static
+        shape: new CANNON.Plane(),
+        material: wallMaterial
+    });
+    wallBody.position.copy(position);
+    wallBody.quaternion.copy(quaternion);
+    world.addBody(wallBody);
+    walls.push(wallBody);
+    return wallBody;
+}
+
+// Initial walls (will be updated on resize)
+const leftWall = createWall(new CANNON.Vec3(-10, 0, 0), new CANNON.Quaternion().setFromEuler(0, Math.PI / 2, 0));
+const rightWall = createWall(new CANNON.Vec3(10, 0, 0), new CANNON.Quaternion().setFromEuler(0, -Math.PI / 2, 0));
+const topWall = createWall(new CANNON.Vec3(0, 10, 0), new CANNON.Quaternion().setFromEuler(Math.PI / 2, 0, 0));
+const bottomWall = createWall(new CANNON.Vec3(0, -10, 0), new CANNON.Quaternion().setFromEuler(-Math.PI / 2, 0, 0));
+
+function updateBounds() {
+    // Calculate visible width/height at z=0
+    // vFOV = camera.fov * Math.PI / 180
+    // visibleHeight = 2 * Math.tan(vFOV / 2) * camera.position.z
+    // visibleWidth = visibleHeight * camera.aspect
+
+    const vFOV = camera.fov * Math.PI / 180;
+    const distance = camera.position.z; // Assuming dice are around z=0
+    const visibleHeight = 2 * Math.tan(vFOV / 2) * distance;
+    const visibleWidth = visibleHeight * camera.aspect;
+
+    const margin = 0.5; // Small margin to keep dice fully on screen
+
+    // Update wall positions
+    // Left: normal (1, 0, 0) -> Rot -90 Y -> Points Right. Pos should be -width/2
+    leftWall.position.set(-visibleWidth / 2 + margin, 0, 0);
+
+    // Right: normal (0, 0, 1) -> Rot 90 Y -> Points Left. Pos should be width/2
+    rightWall.position.set(visibleWidth / 2 - margin, 0, 0);
+
+    // Top: normal (0, 0, 1) -> Rot 90 X -> Points Down. Pos should be height/2
+    topWall.position.set(0, visibleHeight / 2 - margin, 0);
+
+    // Bottom: normal (0, 0, 1) -> Rot -90 X -> Points Up. Pos should be -height/2
+    bottomWall.position.set(0, -visibleHeight / 2 + margin, 0);
 }
 
 // Handle resize
@@ -170,6 +359,10 @@ window.addEventListener('resize', () => {
     camera.aspect = window.innerWidth / window.innerHeight;
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    updateBounds();
 });
+
+// Initial update
+updateBounds();
 
 animate();
