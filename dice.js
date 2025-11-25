@@ -216,41 +216,7 @@ function getTargetRotation(number) {
     }
     return rot;
 }
-
-const timeStep = 1 / 60;
-
-function animate() {
-    requestAnimationFrame(animate);
-}
-        } else if (d.localState === 'SOLVING') {
-    // Deterministic animation to target
-
-    d.mesh.position.lerp(d.targetPos, 0.05);
-
-    const targetQ = new THREE.Quaternion().setFromEuler(d.targetRot);
-    d.mesh.quaternion.slerp(targetQ, 0.05);
-
-    // Sync body to mesh (since we made it kinematic/slept, we manually move it)
-    d.body.position.copy(d.mesh.position);
-    d.body.quaternion.copy(d.mesh.quaternion);
-
-    if (d.mesh.quaternion.angleTo(targetQ) < 0.01) {
-        d.localState = 'SOLVED';
-        setTimeout(() => {
-            window.location.href = `page${d.resultNumber}.html`;
-        }, 500);
-    }
-}
-    });
-
-renderer.render(scene, camera);
-}
-
-// Screen Boundaries
-const walls = [];
-const wallMaterial = new CANNON.Material();
-const wallContactMaterial = new CANNON.ContactMaterial(diceMaterial, wallMaterial, {
-    friction: 0.0,
+friction: 0.0,
     restitution: 0.8 // Bouncier walls
 });
 world.addContactMaterial(wallContactMaterial);
