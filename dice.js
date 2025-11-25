@@ -166,26 +166,38 @@ window.addEventListener('click', (event) => {
         if (diceData && diceData.localState === 'DEFAULT') {
             startScramble(diceData);
         }
+    } else if (d.localState === 'SOLVING') {
+        // Deterministic animation to target
+
+        d.mesh.position.lerp(d.targetPos, 0.05);
+
+        const targetQ = new THREE.Quaternion().setFromEuler(d.targetRot);
+        d.mesh.quaternion.slerp(targetQ, 0.05);
+
+        // Sync body to mesh (since we made it kinematic/slept, we manually move it)
+        d.body.position.copy(d.mesh.position);
+        d.body.quaternion.copy(d.mesh.quaternion);
+
+        if (d.mesh.quaternion.angleTo(targetQ) < 0.01) {
+            d.localState = 'SOLVED';
+            setTimeout(() => {
+                window.location.href = `page${d.resultNumber}.html`;
+            }, 500);
+        }
     }
 });
-
 function startScramble(diceData) {
     diceData.localState = 'SCRAMBLING';
     diceData.scrambleStartTime = Date.now();
 
-    // Apply large random impulse and torque to the clicked die
-    const impulse = new CANNON.Vec3(
-        (Math.random() - 0.5) * 15,
-        (Math.random() - 0.5) * 15,
-        (Math.random() - 0.5) * 15
-    );
-    const point = new CANNON.Vec3(0, 0, 0);
-    diceData.body.applyImpulse(impulse, point);
+    // Reset linear velocity to zero so we can control the path
+    diceData.body.velocity.set(0, 0, 0);
 
+    // Apply large random torque for spinning
     diceData.body.angularVelocity.set(
-        (Math.random() - 0.5) * 20,
-        (Math.random() - 0.5) * 20,
-        (Math.random() - 0.5) * 20
+        (Math.random() - 0.5) * 30,
+        (Math.random() - 0.5) * 30,
+        (Math.random() - 0.5) * 30
     );
 
     diceData.body.wakeUp();
@@ -209,94 +221,29 @@ const timeStep = 1 / 60;
 
 function animate() {
     requestAnimationFrame(animate);
-
-    const now = Date.now();
-    const elapsed = now - startTime;
-
-    // Global State Transitions
-    if (globalState === 'INTRO' && elapsed > 2500) {
-        globalState = 'ASSEMBLING';
-    } else if (globalState === 'ASSEMBLING' && elapsed > 5000) {
-        globalState = 'IDLE';
-    }
-
-    // Step physics world
-    world.step(timeStep);
-
-    diceMeshes.forEach((d) => {
-        // Sync mesh with physics body
-        d.mesh.position.copy(d.body.position);
-        d.mesh.quaternion.copy(d.body.quaternion);
-
-        if (d.localState === 'DEFAULT') {
-            if (globalState === 'INTRO') {
-                // Keep them somewhat on screen
-                if (d.body.position.length() > 10) {
-                    const force = d.body.position.clone().negate().scale(0.2);
-                    d.body.applyForce(force, d.body.position);
-                }
-            } else if (globalState === 'ASSEMBLING' || globalState === 'IDLE') {
-                // Spring force to target position
-                const k = 3; // Spring stiffness
-                const damping = 0.8; // Damping
-
-                const currentPos = new THREE.Vector3().copy(d.body.position);
-                const target = d.targetPos;
-
-                // F = -k * (x - target) - c * v
-                const dist = target.clone().sub(currentPos);
-                const force = dist.multiplyScalar(k);
-
-                const velocity = new THREE.Vector3().copy(d.body.velocity);
-                force.sub(velocity.multiplyScalar(damping));
-
-                d.body.applyForce(new CANNON.Vec3(force.x, force.y, force.z), d.body.position);
-
-                // Add small random noise in IDLE to make them "move slightly"
-                if (globalState === 'IDLE') {
-                    d.body.applyForce(new CANNON.Vec3(
-                        (Math.random() - 0.5) * 0.5,
-                        (Math.random() - 0.5) * 0.5,
-                        (Math.random() - 0.5) * 0.5
-                    ), d.body.position);
-                }
-            }
-        } else if (d.localState === 'SCRAMBLING') {
-            // Scramble for 2 seconds
-            if (now - d.scrambleStartTime > 2000) {
-                d.localState = 'SOLVING';
-                d.resultNumber = Math.floor(Math.random() * 6) + 1;
-                d.targetRot = getTargetRotation(d.resultNumber);
-
-                // Stop in place: set target position to current position
-                d.targetPos.copy(d.body.position);
-
-                // Disable physics for solving
-                d.body.sleep();
-                d.body.type = CANNON.Body.KINEMATIC; // Make it kinematic so it doesn't move by forces
-            }
+}
         } else if (d.localState === 'SOLVING') {
-            // Deterministic animation to target
+    // Deterministic animation to target
 
-            d.mesh.position.lerp(d.targetPos, 0.05);
+    d.mesh.position.lerp(d.targetPos, 0.05);
 
-            const targetQ = new THREE.Quaternion().setFromEuler(d.targetRot);
-            d.mesh.quaternion.slerp(targetQ, 0.05);
+    const targetQ = new THREE.Quaternion().setFromEuler(d.targetRot);
+    d.mesh.quaternion.slerp(targetQ, 0.05);
 
-            // Sync body to mesh (since we made it kinematic/slept, we manually move it)
-            d.body.position.copy(d.mesh.position);
-            d.body.quaternion.copy(d.mesh.quaternion);
+    // Sync body to mesh (since we made it kinematic/slept, we manually move it)
+    d.body.position.copy(d.mesh.position);
+    d.body.quaternion.copy(d.mesh.quaternion);
 
-            if (d.mesh.quaternion.angleTo(targetQ) < 0.01) {
-                d.localState = 'SOLVED';
-                setTimeout(() => {
-                    window.location.href = `page${d.resultNumber}.html`;
-                }, 500);
-            }
-        }
+    if (d.mesh.quaternion.angleTo(targetQ) < 0.01) {
+        d.localState = 'SOLVED';
+        setTimeout(() => {
+            window.location.href = `page${d.resultNumber}.html`;
+        }, 500);
+    }
+}
     });
 
-    renderer.render(scene, camera);
+renderer.render(scene, camera);
 }
 
 // Screen Boundaries
